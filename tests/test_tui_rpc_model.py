@@ -622,3 +622,42 @@ def test_every_provider_stores_a_model_id_that_finds_it_again(spec) -> None:
     resolved = find_by_model(stored)
 
     assert resolved is not None and resolved.name == spec.name, f"{stored} resolves to {resolved and resolved.name}"
+
+
+async def test_options_reports_the_session_model_when_that_session_switched() -> None:
+    """The picker sits under the status bar; reading the global default here is
+    how they end up showing two models for one conversation.
+    """
+    from types import SimpleNamespace
+
+    from raven.tui_rpc.methods.model import model_options
+
+    loop = SimpleNamespace(
+        has_session_binding=lambda key: key == "tui:a",
+        session_model=lambda key: "anthropic/claude-opus-4-8",
+    )
+
+    result = await model_options({"session_id": "tui:a"}, agent_loop_factory=lambda: loop)
+
+    assert result["model"] == "anthropic/claude-opus-4-8"
+    assert result["provider"] == "anthropic"
+
+
+async def test_options_leaves_an_unswitched_session_on_the_configured_answer() -> None:
+    """``session_model`` falls back to the default, so asking it alone would
+    override a forced ``agents.defaults.provider`` for every session.
+    """
+    from types import SimpleNamespace
+
+    from raven.tui_rpc.methods.model import _current_selection, model_options
+
+    configured_model, configured_provider = _current_selection()
+    loop = SimpleNamespace(
+        has_session_binding=lambda key: False,
+        session_model=lambda key: "anthropic/claude-opus-4-8",
+    )
+
+    result = await model_options({"session_id": "tui:b"}, agent_loop_factory=lambda: loop)
+
+    assert result["model"] == configured_model
+    assert result["provider"] == (configured_provider or "")

@@ -320,7 +320,10 @@ def register(app: typer.Typer) -> None:
             registry=plugin_registry,
         )
 
+        from raven.providers.pool import ProviderPool
+
         agent_loop = AgentLoop(
+            provider_pool=ProviderPool(lambda: load_runtime_config(None, None)),
             provider=provider,
             now_fn=parse_fake_now(fake_now),
             workspace=config.workspace_path,
