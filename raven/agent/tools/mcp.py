@@ -16,6 +16,26 @@ if TYPE_CHECKING:
     from raven.sandbox import SandboxExecutor
 
 
+async def _collect_tools(session: "ClientSession") -> list:
+    """Page through tools/list until the server stops returning a nextCursor.
+
+    A server may paginate tool discovery when it exposes more tools than
+    its page size. Track seen cursors so a misbehaving server that
+    re-issues the same cursor cannot trap discovery in an infinite loop.
+    """
+    all_tools = []
+    seen_cursors = {None}
+    cursor = None
+    while True:
+        page = await session.list_tools(cursor)
+        all_tools.extend(page.tools)
+        cursor = page.nextCursor
+        if not cursor or cursor in seen_cursors:
+            break
+        seen_cursors.add(cursor)
+    return all_tools
+
+
 @asynccontextmanager
 async def _mcp_server_connection(cfg, transport_type: str, executor: "SandboxExecutor | None"):
     async with AsyncExitStack() as stack:
@@ -60,8 +80,8 @@ async def _mcp_server_connection(cfg, transport_type: str, executor: "SandboxExe
 
         session = await stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
-        tools = await session.list_tools()
-        yield session, tools
+        all_tools = await _collect_tools(session)
+        yield session, all_tools
 
 
 class MCPToolWrapper(Tool):
@@ -163,13 +183,13 @@ async def connect_mcp_servers(
             continue
 
         try:
-            session, tools = await stack.enter_async_context(_mcp_server_connection(cfg, transport_type, executor))
-            for tool_def in tools.tools:
+            session, all_tools = await stack.enter_async_context(_mcp_server_connection(cfg, transport_type, executor))
+            for tool_def in all_tools:
                 wrapper = MCPToolWrapper(session, name, tool_def, tool_timeout=cfg.tool_timeout)
                 registry.register(wrapper)
                 logger.debug("MCP: registered tool '{}' from server '{}'", wrapper.name, name)
 
-            logger.info("MCP server '{}': connected, {} tools registered", name, len(tools.tools))
+            logger.info("MCP server '{}': connected, {} tools registered", name, len(all_tools))
         except (Exception, BaseExceptionGroup) as e:
             # BaseExceptionGroup is raised by anyio task groups (e.g. streamableHttp cancel
             # scope failures) and is not a subclass of Exception in Python 3.11+.
