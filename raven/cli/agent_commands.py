@@ -313,10 +313,13 @@ def register(app: typer.Typer) -> None:
             if backend is not None:
                 try:
                     await backend.start()
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         "memory backend start failed; continuing with legacy memory path",
                     )
+                    from raven.cli._memory_warn import warn_memory_start_failed
+
+                    warn_memory_start_failed(exc)
             try:
                 # Build inside the running loop: Scheduler pins its home loop in
                 # __init__, so build_repl must not run in the sync prologue.

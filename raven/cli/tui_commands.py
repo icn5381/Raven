@@ -745,12 +745,15 @@ async def _run_rpc_server_until_done(
             async def _start_backend() -> None:
                 try:
                     await agent_loop.backend.start()  # type: ignore[union-attr]
-                except Exception:
+                except Exception as exc:
                     from loguru import logger as _logger
+
+                    from raven.cli._memory_warn import warn_memory_start_failed
 
                     _logger.exception(
                         "tui: memory backend start failed; continuing with degraded memory path",
                     )
+                    warn_memory_start_failed(exc)
                 _strip_tty_stream_handlers()
 
             asyncio.create_task(_start_backend())
